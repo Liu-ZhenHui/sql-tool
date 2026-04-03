@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL Editor - MySQL/StarRocks 编辑器</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- CodeMirror 6 核心 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/mode/sql/sql.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/theme/material-darker.min.css">
+    
+    <!-- CodeMirror 主题和插件 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/addon/hint/show-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/addon/hint/sql-hint.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/addon/hint/show-hint.min.css">
+    
+    <!-- sql-formatter 格式化库 -->
+    <script src="https://cdn.jsdelivr.net/npm/sql-formatter@5.5.0/dist/sql-formatter.min.js"></script>
+    
+    <!-- SheetJS 库 - 用于解析 Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- 工具栏 -->
+    <div class="toolbar">
+        <div class="toolbar-title">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline-block; vertical-align: middle; margin-right: 8px;">
+                <ellipse cx="12" cy="6" rx="8" ry="3"/>
+                <path d="M4 6v6c0 1.657 3.582 3 8 3s8-1.343 8-3V6"/>
+                <path d="M4 12v6c0 1.657 3.582 3 8 3s8-1.343 8-3v-6"/>
+            </svg>
+            SQL Editor
+        </div>
+        
+        <div class="toolbar-group">
+            <label style="font-size: 13px; color: var(--text-secondary);">数据库:</label>
+            <div class="select-wrapper">
+                <select id="dbType" class="select-custom">
+                    <option value="mysql">MySQL</option>
+                    <option value="mariadb">MariaDB</option>
+                    <option value="postgresql">PostgreSQL</option>
+                    <option value="sql">Standard SQL</option>
+                    <option value="starrocks">StarRocks</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="toolbar-divider"></div>
+        
+        <div class="toolbar-group">
+            <button class="btn btn-primary" onclick="formatSQL()" title="格式化 SQL">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="21" y1="10" x2="3" y2="10"/>
+                    <line x1="21" y1="6" x2="3" y2="6"/>
+                    <line x1="21" y1="14" x2="3" y2="14"/>
+                    <line x1="21" y1="18" x2="3" y2="18"/>
+                </svg>
+                格式化
+            </button>
+            <span class="shortcut-hint">Ctrl+Shift+F</span>
+        </div>
+        
+        <div class="toolbar-group">
+            <button class="btn btn-success" onclick="saveCurrentFile()" title="保存 SQL 文件">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/>
+                    <polyline points="7 3 7 8 15 8"/>
+                </svg>
+                保存
+            </button>
+            <span class="shortcut-hint">Ctrl+S</span>
+        </div>
+        
+        <div class="toolbar-group">
+            <button class="btn btn-secondary" onclick="copySQL()" title="复制到剪贴板">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                复制
+            </button>
+            <span class="shortcut-hint">Ctrl+Shift+C</span>
+        </div>
+        
+        <div class="toolbar-group">
+            <button class="btn btn-secondary" onclick="toggleSchemaFloat()" title="显示/隐藏字段浮窗">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <line x1="3" y1="9" x2="21" y2="9"/>
+                    <line x1="9" y1="21" x2="9" y2="9"/>
+                </svg>
+                字段
+            </button>
+            <button class="btn btn-secondary" onclick="toggleSchemaPanel()" title="表结构管理">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7"/>
+                    <rect x="14" y="3" width="7" height="7"/>
+                    <rect x="14" y="14" width="7" height="7"/>
+                    <rect x="3" y="14" width="7" height="7"/>
+                </svg>
+                管理
+            </button>
+        </div>
+        
+        <div class="toolbar-group">
+            <button class="btn btn-danger" onclick="clearEditor()" title="清空编辑器">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3,6 5,6 21,6"/>
+                    <path d="M19,6v14a2,2 0,0,1-2,2H7a2,2 0,0,1-2-2V6M8,6V4a2,2 0,0,1,2-2h4a2,2 0,0,1,2,2V6"/>
+                </svg>
+                清空
+            </button>
+        </div>
+    </div>
+    
+    <!-- 主布局容器 -->
+    <div class="main-layout">
+        <!-- 左侧文件管理面板 -->
+        <div id="filePanel" class="file-panel">
+            <div class="file-panel-header">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold text-[var(--accent-teal)]">SQL 文件</h3>
+                    <div class="flex items-center gap-2">
+                        <!-- 同步状态 -->
+                        <div id="syncStatus" class="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--text-secondary)]">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            <span class="text-xs">本地</span>
+                        </div>
+                        <!-- 同步按钮 -->
+                        <button id="folderSyncBtn" onclick="selectWorkFolder()" class="p-1 hover:bg-[var(--bg-tertiary)] rounded" title="选择本地文件夹同步">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            同步
+                        </button>
+                        <button onclick="toggleSearchPanel()" class="p-1 hover:bg-[var(--bg-tertiary)] rounded" title="搜索">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/>
+                                <path d="M21 21l-4.35-4.35"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <!-- 搜索框 -->
+                <div id="fileSearchContainer" class="mt-2 hidden">
+                    <input type="text" id="fileSearchInput" placeholder="搜索文件名或内容..." oninput="searchFiles()" class="w-full px-2 py-1 text-xs bg-[var(--bg-primary)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]">
+                </div>
+                <!-- 新建按钮组 -->
+                <div class="mt-2 flex gap-1">
+                    <button onclick="showNewFileDialog()" class="flex-1 px-2 py-1 text-xs bg-[var(--accent-blue)] hover:bg-[#4a8bc2] text-white rounded transition" title="新建 SQL 文件">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="12" y1="18" x2="12" y2="12"/>
+                            <line x1="9" y1="15" x2="15" y2="15"/>
+                        </svg>
+                        新建
+                    </button>
+                    <button onclick="showNewFolderDialog()" class="flex-1 px-2 py-1 text-xs bg-[var(--bg-tertiary)] hover:bg-[#3d3d3d] text-white rounded transition" title="新建文件夹">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="inline mr-1">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            <line x1="12" y1="11" x2="12" y2="17"/>
+                            <line x1="9" y1="14" x2="15" y2="14"/>
+                        </svg>
+                        <span id="newFolderBtnText">文件夹</span>
+                    </button>
+                </div>
+            </div>
+            <div id="fileList" class="file-list"></div>
+        </div>
+        
+        <!-- 编辑器容器 -->
+        <div class="editor-container flex-1">
+            <!-- 当前文件标签 -->
+            <div id="fileTab" class="file-tab hidden">
+                <span id="currentFileName" class="text-sm font-medium text-[var(--accent-blue)]">未命名.sql</span>
+                <button onclick="saveCurrentFile()" class="p-1 hover:bg-[var(--bg-tertiary)] rounded ml-2" title="保存 (Ctrl+S)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                        <polyline points="17 21 17 13 7 13 7 21"/>
+                        <polyline points="7 3 7 8 15 8"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="editor-wrapper">
+                <textarea id="sqlEditor"></textarea>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 状态栏 -->
+    <div class="statusbar">
+        <div class="status-item">
+            <span class="status-dot"></span>
+            <span>就绪</span>
+        </div>
+        <div class="status-item">
+            <span>当前模式: </span>
+            <span id="currentMode">MySQL</span>
+        </div>
+        <div class="status-item">
+            <span>行: </span>
+            <span id="cursorLine">1</span>
+            <span>, 列: </span>
+            <span id="cursorCol">1</span>
+        </div>
+        <div class="status-item">
+            <span>字符数: </span>
+            <span id="charCount">0</span>
+        </div>
+    </div>
+    
+    <!-- 提示消息 -->
+    <div id="toast" class="toast"></div>
+    
+    <!-- 常驻表结构浮窗（可拖动） -->
+    <div id="schemaFloat" class="fixed right-4 top-20 w-80 max-h-[60vh] bg-[#252526] border border-[#3c3c3c] rounded-lg shadow-2xl flex flex-col hidden z-40">
+        <!-- 浮窗头部 -->
+        <div class="p-3 border-b border-[#3c3c3c] bg-[#1e1e1e] rounded-t-lg" id="schemaFloatHeader">
+            <div class="flex items-center justify-between mb-2 cursor-move">
+                <h3 class="text-sm font-semibold text-[#4ec9b0]">字段列表</h3>
+                <button onclick="toggleSchemaFloat()" class="p-1 hover:bg-[#3c3c3c] rounded">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <!-- 搜索框 -->
+            <div class="mb-2">
+                <input type="text" id="tableSearch" placeholder="搜索表名或字段名..." oninput="filterTableList()" class="w-full px-3 py-1.5 text-xs bg-[#1e1e1e] border border-[#3c3c3c] rounded text-[#d4d4d4] focus:outline-none focus:border-[#569cd6]">
+            </div>
+            <!-- 选项区域 -->
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                <label class="flex items-center gap-1 text-[#808080] cursor-pointer hover:text-white">
+                    <input type="checkbox" id="autoComma" checked class="accent-[#569cd6]">
+                    自动加逗号
+                </label>
+                <label class="flex items-center gap-1 text-[#808080] cursor-pointer hover:text-white">
+                    <input type="checkbox" id="autoNewline" class="accent-[#569cd6]">
+                    自动换行
+                </label>
+                <label class="flex items-center gap-1 text-[#808080] cursor-pointer hover:text-white">
+                    <input type="checkbox" id="withPrefix" class="accent-[#569cd6]">
+                    带表名前缀
+                </label>
+                <label class="flex items-center gap-1 text-[#808080] cursor-pointer hover:text-white">
+                    <input type="checkbox" id="withAlias" class="accent-[#569cd6]">
+                    AS 中文别名
+                </label>
+            </div>
+            <div class="mt-2 flex items-center gap-2">
+                <span class="text-xs text-[#808080]">前缀:</span>
+                <input type="text" id="customPrefix" placeholder="如: a." class="w-20 px-2 py-1 text-xs bg-[#1e1e1e] border border-[#3c3c3c] rounded text-[#d4d4d4] focus:outline-none focus:border-[#569cd6]">
+            </div>
+        </div>
+        <!-- 浮窗内容 -->
+        <div id="schemaFloatContent" class="flex-1 overflow-auto p-3">
+            <div id="floatTableList" class="space-y-3"></div>
+        </div>
+    </div>
+    
+    <!-- 表结构管理面板 -->
+    <div id="schemaPanel" class="fixed inset-0 bg-black/50 z-50 hidden" onclick="closeSchemaPanel(event)">
+        <div class="absolute right-0 top-0 h-full w-[500px] bg-[var(--bg-secondary)] shadow-xl flex flex-col" onclick="event.stopPropagation()">
+            <!-- 面板头部 -->
+            <div class="flex items-center justify-between p-4 border-b border-[var(--border-color)]">
+                <h3 class="text-lg font-semibold text-[var(--accent-teal)]">表结构管理</h3>
+                <button onclick="toggleSchemaPanel()" class="p-1 hover:bg-[var(--bg-tertiary)] rounded">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- 面板内容 -->
+            <div class="flex-1 overflow-auto p-4">
+                <!-- 添加表按钮 -->
+                <button onclick="addNewTable()" class="w-full mb-4 px-4 py-2 bg-[var(--accent-blue)] hover:bg-[#4a8bc2] text-white rounded-lg flex items-center justify-center gap-2 transition">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    添加新表
+                </button>
+                
+                <!-- Excel 导入按钮 -->
+                <button onclick="document.getElementById('excelFileInput').click()" class="w-full mb-4 px-4 py-2 bg-[var(--accent-green)] hover:bg-[#3d8b40] text-white rounded-lg flex items-center justify-center gap-2 transition">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    从 Excel 导入
+                </button>
+                <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display:none" onchange="importFromExcel(this)">
+                
+                <!-- 表列表 -->
+                <div id="tableList" class="space-y-3"></div>
+                
+                <!-- 导入/导出 -->
+                <div class="mt-6 pt-4 border-t border-[var(--border-color)]">
+                    <h4 class="text-sm font-medium text-[var(--text-secondary)] mb-3">批量导入/导出</h4>
+                    <div class="space-y-2">
+                        <textarea id="schemaJson" placeholder='粘贴JSON格式的表结构...
+示例:
+{
+  "users": ["id", "name", "email", "created_at"],
+  "orders": ["id", "user_id", "amount", "status"]
+}' class="w-full h-32 p-3 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg text-sm font-mono resize-none focus:outline-none focus:border-[var(--accent-blue)]"></textarea>
+                        <div class="flex gap-2">
+                            <button onclick="importSchema()" class="flex-1 px-3 py-2 bg-[var(--accent-green)] hover:bg-[#3d8b40] text-white rounded text-sm transition">导入</button>
+                            <button onclick="exportSchema()" class="flex-1 px-3 py-2 bg-[var(--bg-tertiary)] hover:bg-[#3d3d3d] text-white rounded text-sm transition">导出</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript 模块 -->
+    <script src="js/config.js"></script>
+    <script src="js/editor.js"></script>
+    <script src="js/formatter.js"></script>
+    <script src="js/schema.js"></script>
+    <script src="js/files.js"></script>
+    
+    <!-- 初始化 -->
+    <script>
+        // 拖动浮窗
+        let isDragging = false;
+        let dragOffsetX, dragOffsetY;
+        
+        document.getElementById('schemaFloatHeader').addEventListener('mousedown', function(e) {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'LABEL') return;
+            isDragging = true;
+            const panel = document.getElementById('schemaFloat');
+            dragOffsetX = e.clientX - panel.offsetLeft;
+            dragOffsetY = e.clientY - panel.offsetTop;
+            document.body.style.cursor = 'move';
+        });
+        
+        document.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            const panel = document.getElementById('schemaFloat');
+            let newLeft = e.clientX - dragOffsetX;
+            let newTop = e.clientY - dragOffsetY;
+            // 限制在视口内
+            newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - panel.offsetWidth));
+            newTop = Math.max(0, Math.min(newTop, window.innerHeight - 50));
+            panel.style.left = newLeft + 'px';
+            panel.style.top = newTop + 'px';
+            panel.style.right = 'auto';
+        });
+        
+        document.addEventListener('mouseup', function() {
+            isDragging = false;
+            document.body.style.cursor = '';
+        });
+        
+        // 初始化数据
+        loadSchemaFromStorage();
+        renderFloatTableList();
+        
+        // 尝试恢复本地文件夹同步
+        initFileSystem().then(() => {
+            // 同步模式下不需要加载浏览器存储的文件
+            if (!isSyncMode) {
+                loadFilesFromStorage();
+            }
+            renderFileList();
+            
+            // 如果有打开着的文件，恢复它
+            if (currentFileId && sqlFiles[currentFileId]) {
+                const file = sqlFiles[currentFileId];
+                document.getElementById('currentFileName').textContent = file.name;
+                document.getElementById('fileTab').classList.remove('hidden');
+                editor.setValue(file.content || '');
+            }
+        });
+    </script>
+    
+    <style>
+        /* 补全列表自定义样式 */
+        .cm-completionHint-table::before {
+            content: '📋 ';
+        }
+        .cm-completionHint-field::before {
+            content: '📊 ';
+        }
+        .cm-completionHint-keyword::before {
+            content: '🔹 ';
+        }
+    </style>
+</body>
+</html>
