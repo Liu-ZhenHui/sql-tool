@@ -546,9 +546,15 @@ async function syncAllToDisk() {
 
 // 定时同步（每30秒）
 let syncTimer = null;
+let moveInProgress = false;  // 文件移动操作进行中标志
 function startPeriodicSync() {
     if (syncTimer) clearInterval(syncTimer);
     syncTimer = setInterval(async () => {
+        // 移动操作进行中时跳过同步，避免竞态写入导致文件重复
+        if (moveInProgress) {
+            console.log('移动操作进行中，跳过本次定时同步');
+            return;
+        }
         // 先保存当前编辑内容
         if (currentFileId && editor) {
             const content = editor.getValue();
@@ -975,8 +981,16 @@ async function moveFileToFolder(fileId, folderId) {
 
     const originalFolderId = file.folderId;
 
+    // 防止重入，同时通知定时同步跳过
+    if (moveInProgress) {
+        showToast('正在移动文件中，请稍候', 'error');
+        return;
+    }
+    moveInProgress = true;
+
     // 如果是同步模式（已连接本地文件夹），执行真实文件移动
     if (isSyncMode && directoryHandle) {
+        let targetCreated = false;
         try {
             // 1. 在新目标目录创建文件
             let targetDir = directoryHandle;
@@ -989,28 +1003,48 @@ async function moveFileToFolder(fileId, folderId) {
             const writable = await fileHandle.createWritable();
             await writable.write(file.content);
             await writable.close();
+            targetCreated = true;
 
             // 2. 删除原位置的文件
-            if (originalFolderId && originalFolderId.startsWith('fs-folder-')) {
-                const originalFolderName = originalFolderId.replace('fs-folder-', '');
-                const originalDir = await directoryHandle.getDirectoryHandle(originalFolderName);
-                await originalDir.removeEntry(file.name);
-            } else if (!originalFolderId || originalFolderId === '') {
-                // 文件在根目录
-                await directoryHandle.removeEntry(file.name);
+            try {
+                if (originalFolderId && originalFolderId.startsWith('fs-folder-')) {
+                    const originalFolderName = originalFolderId.replace('fs-folder-', '');
+                    const originalDir = await directoryHandle.getDirectoryHandle(originalFolderName);
+                    await originalDir.removeEntry(file.name);
+                } else if (!originalFolderId || originalFolderId === '') {
+                    // 文件在根目录
+                    await directoryHandle.removeEntry(file.name);
+                }
+            } catch (deleteErr) {
+                // 删除失败！回滚：删除目标位置刚创建的文件
+                console.error('删除源文件失败，执行回滚:', deleteErr);
+                try {
+                    await targetDir.removeEntry(file.name);
+                    showToast('移动失败：无法删除原位置文件（可能文件被占用）', 'error');
+                } catch (rollbackErr) {
+                    console.error('回滚失败:', rollbackErr);
+                }
+                moveInProgress = false;
+                return;  // 不更新元数据，保持原状
             }
+
         } catch (err) {
             console.error('移动文件失败:', err);
-            // 即使失败也继续更新记录
+            moveInProgress = false;
+            showToast('移动文件失败', 'error');
+            return;
         }
     }
 
-    // 3. 更新元数据
+    // 3. 更新元数据（只有磁盘操作全部成功才到这里）
     file.folderId = folderId;
     file.updatedAt = Date.now();
     saveFilesToStorage();
     renderFileList();
     showToast('已将文件移动到文件夹');
+
+    // 延迟释放锁，确保不会和当次同步冲突
+    setTimeout(() => { moveInProgress = false; }, 2000);
 }
 
 // 渲染文件列表
